@@ -60,8 +60,13 @@ func generateRules() error {
 	}
 
 	// Generate Agent rules (concatenated AGENTS.md) from shared + chatgpt-codex-specific
-	if err := generateAgentRules([]string{sharedDir, chatgptCodexSrcDir}, agentsMD); err != nil {
+	if err := generateAgentRules([]string{sharedDir, chatgptCodexSrcDir}, agentsMD, rootDir); err != nil {
 		return fmt.Errorf("generating agent rules: %w", err)
+	}
+
+	// Generate Bugbot rules (.cursor/BUGBOT.md) from review-guidelines
+	if err := generateBugbotRules(rootDir); err != nil {
+		return fmt.Errorf("generating bugbot rules: %w", err)
 	}
 
 	// Add warning files to generated directories
@@ -270,7 +275,7 @@ func generateClaudeRules(srcDirs []string, claudeFile string) error {
 	return nil
 }
 
-func generateAgentRules(srcDirs []string, agentFile string) error {
+func generateAgentRules(srcDirs []string, agentFile string, rootDir string) error {
 	var allFiles []string
 
 	// Collect files from all source directories
@@ -323,11 +328,120 @@ func generateAgentRules(srcDirs []string, agentFile string) error {
 		}()
 	}
 
+	// Check for review-guidelines directory and append if present
+	reviewGuidelinesDir := filepath.Join(rootDir, "agentrules", "review-guidelines")
+	if _, err := os.Stat(reviewGuidelinesDir); err == nil {
+		reviewFiles, err := filepath.Glob(filepath.Join(reviewGuidelinesDir, "*.md"))
+		if err != nil {
+			return err
+		}
+
+		if len(reviewFiles) > 0 {
+			// Sort files for consistent output
+			sort.Strings(reviewFiles)
+
+			output.WriteString("\n## Review guidelines\n\n")
+
+			for i, file := range reviewFiles {
+				func() {
+					f, err := os.Open(file)
+					if err != nil {
+						return
+					}
+					defer f.Close()
+
+					scanner := bufio.NewScanner(f)
+					firstLine := true
+					for scanner.Scan() {
+						line := scanner.Text()
+						// Skip first line if it's a heading (starts with # )
+						if firstLine && strings.HasPrefix(line, "# ") {
+							firstLine = false
+							continue
+						}
+						// Skip YAML frontmatter
+						if firstLine && strings.HasPrefix(line, "---") {
+							for scanner.Scan() {
+								if strings.HasPrefix(scanner.Text(), "---") {
+									break
+								}
+							}
+							firstLine = false
+							continue
+						}
+						firstLine = false
+						output.WriteString(line + "\n")
+					}
+				}()
+
+				// Add separator between files (but not after the last one)
+				if i < len(reviewFiles)-1 {
+					output.WriteString("\n---\n\n")
+				}
+			}
+		}
+	}
+
 	if err := os.WriteFile(agentFile, ensureTrailingNewline([]byte(output.String())), 0600); err != nil {
 		return err
 	}
 
 	fmt.Println("[agents] rebuilt")
+	return nil
+}
+
+func generateBugbotRules(rootDir string) error {
+	reviewGuidelinesDir := filepath.Join(rootDir, "agentrules", "review-guidelines")
+
+	// Check if review-guidelines directory exists
+	if _, err := os.Stat(reviewGuidelinesDir); os.IsNotExist(err) {
+		// Directory doesn't exist, skip generation
+		return nil
+	}
+
+	reviewFiles, err := filepath.Glob(filepath.Join(reviewGuidelinesDir, "*.md"))
+	if err != nil {
+		return err
+	}
+
+	if len(reviewFiles) == 0 {
+		// No files to process, skip generation
+		return nil
+	}
+
+	// Sort files for consistent output
+	sort.Strings(reviewFiles)
+
+	var output strings.Builder
+	output.WriteString("<!-- generated; DO NOT EDIT. Edit files in agentrules/review-guidelines/ -->\n\n")
+
+	for i, file := range reviewFiles {
+		content, err := os.ReadFile(file)
+		if err != nil {
+			return err
+		}
+
+		// Write content as-is (no processing)
+		output.Write(content)
+
+		// Add separator between files (but not after the last one)
+		if i < len(reviewFiles)-1 {
+			output.WriteString("\n---\n\n")
+		}
+	}
+
+	// Ensure .cursor directory exists
+	cursorDir := filepath.Join(rootDir, ".cursor")
+	if err := os.MkdirAll(cursorDir, 0755); err != nil {
+		return fmt.Errorf("creating .cursor directory: %w", err)
+	}
+
+	bugbotFile := filepath.Join(cursorDir, "BUGBOT.md")
+	if err := os.WriteFile(bugbotFile, ensureTrailingNewline([]byte(output.String())), 0600); err != nil {
+		return err
+	}
+
+	fmt.Println("[bugbot] rebuilt")
 	return nil
 }
 
@@ -355,4 +469,3 @@ Any changes made directly to files in this directory will be lost when the rules
 	fmt.Println("[warnings] added README file to generated directory")
 	return nil
 }
-
