@@ -469,4 +469,3 @@ Any changes made directly to files in this directory will be lost when the rules
 	fmt.Println("[warnings] added README file to generated directory")
 	return nil
 }
-
