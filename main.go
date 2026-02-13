@@ -96,6 +96,25 @@ func findGitRoot() (string, error) {
 	}
 }
 
+// isAgentrulesComment returns true if the line is an @agentrules directive comment.
+func isAgentrulesComment(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	return strings.HasPrefix(trimmed, "<!-- @agentrules") && strings.HasSuffix(trimmed, "-->")
+}
+
+// stripAgentrulesComments removes @agentrules directive comments from content.
+func stripAgentrulesComments(content []byte) []byte {
+	var out strings.Builder
+	scanner := bufio.NewScanner(strings.NewReader(string(content)))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !isAgentrulesComment(line) {
+			out.WriteString(line + "\n")
+		}
+	}
+	return []byte(out.String())
+}
+
 // ensureTrailingNewline adds a trailing newline to content if it doesn't already have one
 func ensureTrailingNewline(content []byte) []byte {
 	if len(content) == 0 || content[len(content)-1] != '\n' {
@@ -128,6 +147,8 @@ func generateCursorRules(srcDir, dstDir string) error {
 		}
 
 		var output strings.Builder
+
+		content = stripAgentrulesComments(content)
 
 		// Check if file already has YAML frontmatter
 		if strings.HasPrefix(string(content), "---") {
@@ -198,6 +219,9 @@ func generateWindsurfRules(srcDirs []string, windsurfFile string) error {
 					continue
 				}
 				firstLine = false
+				if isAgentrulesComment(line) {
+					continue
+				}
 				output.WriteString(line + "\n")
 			}
 
@@ -260,6 +284,9 @@ func generateClaudeRules(srcDirs []string, claudeFile string) error {
 					continue
 				}
 				firstLine = false
+				if isAgentrulesComment(line) {
+					continue
+				}
 				output.WriteString(line + "\n")
 			}
 
@@ -321,6 +348,9 @@ func generateAgentRules(srcDirs []string, agentFile string, rootDir string) erro
 					continue
 				}
 				firstLine = false
+				if isAgentrulesComment(line) {
+					continue
+				}
 				output.WriteString(line + "\n")
 			}
 
@@ -370,6 +400,9 @@ func generateAgentRules(srcDirs []string, agentFile string, rootDir string) erro
 							continue
 						}
 						firstLine = false
+						if isAgentrulesComment(line) {
+							continue
+						}
 						output.WriteString(line + "\n")
 					}
 				}()
@@ -421,7 +454,8 @@ func generateBugbotRules(rootDir string) error {
 			return err
 		}
 
-		// Write content as-is (no processing)
+		// Write content with @agentrules comments stripped
+		content = stripAgentrulesComments(content)
 		output.Write(content)
 
 		// Add separator between files (but not after the last one)
