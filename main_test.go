@@ -146,7 +146,7 @@ func TestGenerateClaudeRules_StripsComment(t *testing.T) {
 		filepath.Join(root, "agentrules", "claude-code"),
 	}
 
-	if err := generateClaudeRules(srcDirs, outFile); err != nil {
+	if err := generateClaudeRules(srcDirs, outFile, root); err != nil {
 		t.Fatal(err)
 	}
 
@@ -162,6 +162,9 @@ func TestGenerateClaudeRules_StripsComment(t *testing.T) {
 	}
 	if !strings.Contains(string(content), "Tool Rule") {
 		t.Errorf("claude output missing tool-specific content")
+	}
+	if !strings.Contains(string(content), "Review Rule") {
+		t.Errorf("claude output missing review guidelines content")
 	}
 }
 

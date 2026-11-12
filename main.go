@@ -55,7 +55,7 @@ func generateRules() error {
 	}
 
 	// Generate Claude rules (concatenated CLAUDE.md) from shared + claude-code-specific
-	if err := generateClaudeRules([]string{sharedDir, claudeCodeSrcDir}, claudeMD); err != nil {
+	if err := generateClaudeRules([]string{sharedDir, claudeCodeSrcDir}, claudeMD, rootDir); err != nil {
 		return fmt.Errorf("generating claude rules: %w", err)
 	}
 
@@ -237,7 +237,7 @@ func generateWindsurfRules(srcDirs []string, windsurfFile string) error {
 	return nil
 }
 
-func generateClaudeRules(srcDirs []string, claudeFile string) error {
+func generateClaudeRules(srcDirs []string, claudeFile string, rootDir string) error {
 	var allFiles []string
 
 	// Collect files from all source directories
@@ -294,11 +294,83 @@ func generateClaudeRules(srcDirs []string, claudeFile string) error {
 		}()
 	}
 
+	if err := appendReviewGuidelinesSection(&output, rootDir); err != nil {
+		return err
+	}
+
 	if err := os.WriteFile(claudeFile, ensureTrailingNewline([]byte(output.String())), 0600); err != nil {
 		return err
 	}
 
 	fmt.Println("[claude] rebuilt")
+	return nil
+}
+
+// appendReviewGuidelinesSection appends a "## Review guidelines" section built
+// from agentrules/review-guidelines/*.md to output, if that directory exists
+// and has content. Shared by generateClaudeRules and generateAgentRules so
+// Claude Code and Codex/Cursor see the same review guidance.
+func appendReviewGuidelinesSection(output *strings.Builder, rootDir string) error {
+	reviewGuidelinesDir := filepath.Join(rootDir, "agentrules", "review-guidelines")
+	if _, err := os.Stat(reviewGuidelinesDir); err != nil {
+		return nil
+	}
+
+	reviewFiles, err := filepath.Glob(filepath.Join(reviewGuidelinesDir, "*.md"))
+	if err != nil {
+		return err
+	}
+
+	if len(reviewFiles) == 0 {
+		return nil
+	}
+
+	// Sort files for consistent output
+	sort.Strings(reviewFiles)
+
+	output.WriteString("\n## Review guidelines\n\n")
+
+	for i, file := range reviewFiles {
+		func() {
+			f, err := os.Open(file)
+			if err != nil {
+				return
+			}
+			defer f.Close()
+
+			scanner := bufio.NewScanner(f)
+			firstLine := true
+			for scanner.Scan() {
+				line := scanner.Text()
+				// Skip first line if it's a heading (starts with # )
+				if firstLine && strings.HasPrefix(line, "# ") {
+					firstLine = false
+					continue
+				}
+				// Skip YAML frontmatter
+				if firstLine && strings.HasPrefix(line, "---") {
+					for scanner.Scan() {
+						if strings.HasPrefix(scanner.Text(), "---") {
+							break
+						}
+					}
+					firstLine = false
+					continue
+				}
+				firstLine = false
+				if isAgentrulesComment(line) {
+					continue
+				}
+				output.WriteString(line + "\n")
+			}
+		}()
+
+		// Add separator between files (but not after the last one)
+		if i < len(reviewFiles)-1 {
+			output.WriteString("\n---\n\n")
+		}
+	}
+
 	return nil
 }
 
@@ -358,61 +430,8 @@ func generateAgentRules(srcDirs []string, agentFile string, rootDir string) erro
 		}()
 	}
 
-	// Check for review-guidelines directory and append if present
-	reviewGuidelinesDir := filepath.Join(rootDir, "agentrules", "review-guidelines")
-	if _, err := os.Stat(reviewGuidelinesDir); err == nil {
-		reviewFiles, err := filepath.Glob(filepath.Join(reviewGuidelinesDir, "*.md"))
-		if err != nil {
-			return err
-		}
-
-		if len(reviewFiles) > 0 {
-			// Sort files for consistent output
-			sort.Strings(reviewFiles)
-
-			output.WriteString("\n## Review guidelines\n\n")
-
-			for i, file := range reviewFiles {
-				func() {
-					f, err := os.Open(file)
-					if err != nil {
-						return
-					}
-					defer f.Close()
-
-					scanner := bufio.NewScanner(f)
-					firstLine := true
-					for scanner.Scan() {
-						line := scanner.Text()
-						// Skip first line if it's a heading (starts with # )
-						if firstLine && strings.HasPrefix(line, "# ") {
-							firstLine = false
-							continue
-						}
-						// Skip YAML frontmatter
-						if firstLine && strings.HasPrefix(line, "---") {
-							for scanner.Scan() {
-								if strings.HasPrefix(scanner.Text(), "---") {
-									break
-								}
-							}
-							firstLine = false
-							continue
-						}
-						firstLine = false
-						if isAgentrulesComment(line) {
-							continue
-						}
-						output.WriteString(line + "\n")
-					}
-				}()
-
-				// Add separator between files (but not after the last one)
-				if i < len(reviewFiles)-1 {
-					output.WriteString("\n---\n\n")
-				}
-			}
-		}
+	if err := appendReviewGuidelinesSection(&output, rootDir); err != nil {
+		return err
 	}
 
 	if err := os.WriteFile(agentFile, ensureTrailingNewline([]byte(output.String())), 0600); err != nil {
