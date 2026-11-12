@@ -489,9 +489,9 @@ func addWarningFiles(cursorDst, claudeMD string) error {
 **DO NOT EDIT** these files directly. Instead, edit the source files in:
 - ` + "`agentrules/shared/`" + `
 
-To regenerate these files, run:
+To regenerate these files, run this from the repository root:
 ` + "```bash" + `
-go generate ./agentrules
+go run github.com/sprucehealth/agentrules@latest
 ` + "```" + `
 
 Any changes made directly to files in this directory will be lost when the rules are regenerated.
